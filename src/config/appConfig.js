@@ -3,11 +3,11 @@ const appConfig = {
   // -------------------------------------------------------------
   // 1. APP INFORMATION
   // -------------------------------------------------------------
-  appName: "Chatting",
-  appSlug: "wc-chatting-chat",
+  appName: "W&C chatting support",
+  appSlug: "wc-chatting-support",
   version: "1.0.0",
-  androidPackage: "com.chat.chat",
-  scheme: "chat",
+  androidPackage: "com.wvc.wc",
+  scheme: "wvc",
 
   // -------------------------------------------------------------
   // 2. ASSETS (ICONS & SPLASH SCREEN)

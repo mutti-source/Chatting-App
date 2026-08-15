@@ -1,34 +1,53 @@
 ==================================================
-        HOW TO CREATE AN ANDROID APK (EAS BUILD)
+        HOW TO CREATE A STANDALONE ANDROID APK
 ==================================================
 
-Step 1: Verify your Expo Login
+Step 1: Check your Expo Login
 --------------------------------------------------
-Run this in your project terminal to check who is logged in:
+Run this command in the project terminal to verify your Expo account:
 
   npx eas whoami
 
-If you are not logged in, run:
+If not logged in, log in with your Expo credentials:
 
   npx eas login
 
 
-Step 2: Link Project (Only needed if changing Expo accounts)
+Step 2: Initialize a Fresh EAS Project ID
 --------------------------------------------------
-If you change Expo accounts, link the project to your current account:
+To create a brand new project on your Expo dashboard with a new unique project ID, run:
 
-  npx eas init --account <your-username>
+  npx eas-cli project:init
+
+When prompted:
+- "Would you like to create a project for @your-username/wc-chatting-support?" -> Choose: Yes
+- EAS will create the project and automatically write your new unique projectId into app.json.
 
 
-Step 3: Trigger the Android APK Build
+Step 3: Verify eas.json Environment Variables
+--------------------------------------------------
+Make sure `eas.json` contains your Firebase and Cloudinary keys under the `preview` profile so the compiled APK has full access to authentication, database, and media uploads.
+
+
+Step 4: Trigger the Android APK Build
 --------------------------------------------------
 Run the preview build command to generate a direct installable .apk file:
 
-  npx eas build -p android --profile preview
+  npx eas-cli build -p android --profile preview
+
+Alternative if eas-cli is installed globally:
+  eas build -p android --profile preview
 
 
-Step 4: Download & Install
+Step 5: Download & Install
 --------------------------------------------------
-- Expo cloud servers will compile the app package.
-- Once completed, the terminal will display a direct download URL and a QR Code.
-- Scan the QR code with your phone camera or open the link to download and install the .apk file on any Android device!
+- EAS Cloud servers will compile the native Android package.
+- Once finished, the terminal will display a direct APK download link and a QR Code.
+- Open the download link on your phone browser or scan the QR code to install the .apk on any Android device!
+
+
+==================================================
+                 TROUBLESHOOTING
+==================================================
+- Slug Mismatch Error: Ensure `slug` in app.json and `appSlug` in src/config/appConfig.js match your EAS project name (wc-chatting-support).
+- Re-linking Accounts: If switching accounts, run: `npx eas init --id` or `npx eas project:init` to refresh credentials.

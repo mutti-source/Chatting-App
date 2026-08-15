@@ -22,6 +22,7 @@ module.exports = ({ config }) => ({
     },
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
+    softwareKeyboardLayoutMode: "resize",
     package: appConfig.androidPackage
   },
   web: {
@@ -48,9 +49,7 @@ module.exports = ({ config }) => ({
     reactCompiler: true
   },
   extra: {
+    ...config.extra,
     router: {},
-    eas: {
-      projectId: "00e1048a-ea59-4522-b996-662ad7502f5a"
-    }
   }
 });
