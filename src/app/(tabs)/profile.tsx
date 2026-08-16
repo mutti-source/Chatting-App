@@ -394,7 +394,7 @@ export default function ProfileScreen() {
       {/* EDIT PROFILE MODAL */}
       <Modal visible={showEditModal} transparent animationType="slide" onRequestClose={() => setShowEditModal(false)}>
         <KeyboardAvoidingView 
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
           style={{ flex: 1 }}
         >
           <View style={styles.modalOverlay}>

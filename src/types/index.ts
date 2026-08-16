@@ -48,6 +48,8 @@ export interface Message {
   isDeleted?: boolean;
 }
 
+export type DirectChatStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED';
+
 export interface DirectChat {
   id: string;
   participants: string[];
@@ -56,6 +58,8 @@ export interface DirectChat {
   lastMessage: string;
   lastMessageTime: any;
   createdAt: any;
+  status?: DirectChatStatus;
+  initiatedBy?: string;
 }
 
 export interface JoinRequest {

@@ -6,15 +6,17 @@ import { useAuth } from '@/src/context/AuthContext';
 import { useTheme } from '@/src/context/ThemeContext';
 import { db } from '@/src/firebase/config';
 import {
+  acceptDirectChat,
   deleteGroup,
   getOrCreateDirectChat,
+  rejectDirectChat,
   sendDirectMessage,
   sendMessage,
   setTypingStatus,
   softDeleteMessage,
   updateGroup
 } from '@/src/firebase/firestore';
-import { ChatMode, Group, Message, UserProfile } from '@/src/types';
+import { ChatMode, DirectChat, Group, Message, UserProfile } from '@/src/types';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
@@ -31,6 +33,7 @@ import {
   Alert,
   FlatList,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -48,14 +51,50 @@ export default function ChatScreen() {
   const insets = useSafeAreaInsets();
 
   const [group, setGroup] = useState<Group | null>(null);
+  const [directChat, setDirectChat] = useState<DirectChat | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [editName, setEditName] = useState('');
   const [loadingUsers, setLoadingUsers] = useState(false);
+  const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
 
   const flatListRef = useRef<FlatList>(null);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+
+    const showSub = Keyboard.addListener('keyboardDidShow', (e) => {
+      setAndroidKeyboardHeight(e.endCoordinates.height);
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      setAndroidKeyboardHeight(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!id || type !== 'direct') return;
+
+    const unsub = onSnapshot(doc(db, 'direct_chats', id), (docSnapshot) => {
+      if (docSnapshot.exists()) {
+        setDirectChat({ id: docSnapshot.id, ...docSnapshot.data() } as DirectChat);
+      }
+    });
+
+    return unsub;
+  }, [id, type]);
+
+  const isDirectPendingForMe = 
+    type === 'direct' && 
+    directChat?.status === 'PENDING' && 
+    directChat?.initiatedBy && 
+    directChat?.initiatedBy !== user?.uid;
 
   useEffect(() => {
     if (!id || type !== 'group') return;
@@ -67,12 +106,26 @@ export default function ChatScreen() {
         return;
       }
       const groupData = { id: docSnapshot.id, ...docSnapshot.data() } as Group;
+
+      const isMember = 
+        userProfile?.role === 'admin' ||
+        groupData.adminId === user?.uid ||
+        (groupData.adminIds && groupData.adminIds.includes(user?.uid || '')) ||
+        (groupData.members && groupData.members.includes(user?.uid || '')) ||
+        (groupData.allowedUsers && groupData.allowedUsers.includes(user?.uid || ''));
+
+      if (!isMember) {
+        Alert.alert("Access Denied", "You are not a member of this channel.");
+        router.replace('/(tabs)/groups');
+        return;
+      }
+
       setGroup(groupData);
       setEditName(groupData.name);
     });
 
     return unsub;
-  }, [id, type]);
+  }, [id, type, user, userProfile]);
 
   const isAdmin = useMemo(() => {
     if (!user) return false;
@@ -81,6 +134,24 @@ export default function ChatScreen() {
     if (group?.adminIds && group.adminIds.includes(user.uid)) return true;
     return false;
   }, [group, user, userProfile]);
+
+  const groupMembers = useMemo(() => {
+    if (type !== 'group' || !group) return [];
+    
+    const memberIds = new Set<string>();
+    if (group.adminId) memberIds.add(group.adminId);
+    if (group.adminIds && Array.isArray(group.adminIds)) {
+      group.adminIds.forEach(id => memberIds.add(id));
+    }
+    if (group.members && Array.isArray(group.members)) {
+      group.members.forEach(id => memberIds.add(id));
+    }
+    if (group.allowedUsers && Array.isArray(group.allowedUsers)) {
+      group.allowedUsers.forEach(id => memberIds.add(id));
+    }
+
+    return allUsers.filter(u => memberIds.has(u.uid) && u.uid !== user?.uid);
+  }, [type, group, allUsers, user]);
 
   useEffect(() => {
     setLoadingUsers(true);
@@ -311,7 +382,20 @@ export default function ChatScreen() {
     : 'Direct Message';
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <View 
+      style={[
+        styles.container, 
+        { 
+          backgroundColor: colors.background,
+          paddingBottom: Platform.OS === 'android' ? (androidKeyboardHeight > 0 ? androidKeyboardHeight + 44 : 0) : 0
+        }
+      ]}
+    >
+      <KeyboardAvoidingView 
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={0}
+      >
       
       {/* TOP APP BAR */}
       <View style={[
@@ -405,11 +489,7 @@ export default function ChatScreen() {
       </View>
 
       {/* CHAT MESSAGES CANVAS */}
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-      >
+      <View style={{ flex: 1 }}>
         <FlatList
           ref={flatListRef}
           data={messages}
@@ -444,18 +524,64 @@ export default function ChatScreen() {
 
         <TypingIndicator typingUsers={typingUsers} />
 
-        <ChatInput
-          onSend={handleSend}
-          onTyping={handleTyping}
-          placeholder={
-            (type === 'group' && group?.chatMode === 'ADMIN_ONLY' && !isAdmin)
-              ? "Only admins can send messages in this group"
-              : "Type a message or @mention..."
-          }
-          disabled={!canSend}
-          members={allUsers}
-        />
-      </KeyboardAvoidingView>
+        {isDirectPendingForMe ? (
+          <View style={[
+            styles.pendingBanner, 
+            { 
+              backgroundColor: isDark ? colors.card : '#FFFFFF', 
+              borderTopColor: colors.border,
+              paddingBottom: Math.max(insets.bottom, 14)
+            }
+          ]}>
+            <View style={styles.pendingTextContainer}>
+              <Ionicons name="information-circle-outline" size={20} color={colors.primary} />
+              <Text style={[styles.pendingBannerText, { color: colors.text }]}>
+                {chatTitle} sent you a message request. Accept to start chatting.
+              </Text>
+            </View>
+            <View style={styles.pendingBtnRow}>
+              <TouchableOpacity 
+                style={[styles.pendingRejectBtn, { borderColor: colors.danger, backgroundColor: isDark ? 'rgba(255, 69, 58, 0.1)' : 'rgba(255, 59, 48, 0.08)' }]}
+                onPress={async () => {
+                  await rejectDirectChat(id);
+                  Alert.alert("Declined", "Message request declined.");
+                  router.replace('/(tabs)/groups');
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close" size={16} color={colors.danger} />
+                <Text style={[styles.pendingBtnText, { color: colors.danger }]}>Decline</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.pendingApproveBtn, { backgroundColor: colors.primary }]}
+                onPress={async () => {
+                  await acceptDirectChat(id);
+                  Alert.alert("Request Accepted", "You can now message each other.");
+                }}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                <Text style={[styles.pendingBtnText, { color: '#FFFFFF', fontWeight: '700' }]}>Accept</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <ChatInput
+            onSend={handleSend}
+            onTyping={handleTyping}
+            placeholder={
+              (type === 'group' && group?.chatMode === 'ADMIN_ONLY' && !isAdmin)
+                ? "Only admins can send messages in this group"
+                : type === 'group'
+                ? "Type a message or @mention..."
+                : "Type a message..."
+            }
+            disabled={!canSend}
+            members={groupMembers}
+          />
+        )}
+      </View>
 
       {group && (
         <GroupSettingsModal
@@ -472,6 +598,7 @@ export default function ChatScreen() {
           onDeleteGroup={handleDeleteGroup}
         />
       )}
+      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -565,6 +692,51 @@ const styles = StyleSheet.create({
   },
   datePillText: {
     fontSize: 11,
+    fontWeight: '600',
+  },
+  pendingBanner: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    gap: 12,
+  },
+  pendingTextContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  pendingBannerText: {
+    fontSize: 13,
+    fontWeight: '500',
+    flex: 1,
+    lineHeight: 18,
+  },
+  pendingBtnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  pendingRejectBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 6,
+  },
+  pendingApproveBtn: {
+    flex: 1.4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+    gap: 6,
+  },
+  pendingBtnText: {
+    fontSize: 13,
     fontWeight: '600',
   },
 });

@@ -1,10 +1,11 @@
 import { Link } from 'expo-router';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { Ionicons } from '@expo/vector-icons';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   KeyboardAvoidingView, 
   Platform,
   ScrollView,
@@ -24,8 +25,25 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
+  const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
   const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+
+    const showSub = Keyboard.addListener('keyboardDidShow', (e) => {
+      setAndroidKeyboardHeight(e.endCoordinates.height);
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      setAndroidKeyboardHeight(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const validateEmail = (val: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -87,7 +105,13 @@ export default function Login() {
   return (
     <KeyboardAvoidingView 
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={[styles.container, { backgroundColor: colors.background }]}
+      style={[
+        styles.container, 
+        { 
+          backgroundColor: colors.background,
+          paddingBottom: Platform.OS === 'android' ? (androidKeyboardHeight > 0 ? androidKeyboardHeight + 44 : 0) : 0
+        }
+      ]}
     >
       <ScrollView 
         contentContainerStyle={[

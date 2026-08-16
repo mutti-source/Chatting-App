@@ -4,12 +4,14 @@ import { uploadToCloudinary } from '@/src/utils/cloudinary';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import * as ImagePicker from 'expo-image-picker';
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { 
   ActivityIndicator, 
   Alert, 
   FlatList, 
   Image, 
+  Keyboard,
+  Platform,
   StyleSheet, 
   Text, 
   TextInput, 
@@ -35,18 +37,36 @@ export default function ChatInput({ onSend, onTyping, placeholder, disabled, mem
   const [isUploading, setIsUploading] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [mentionedIds, setMentionedIds] = useState<string[]>([]);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   
   const typingTimeoutRef = useRef<any>(null);
   const isTypingRef = useRef(false);
 
-  // Parse @mention query from current cursor/text
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => setKeyboardVisible(true)
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setKeyboardVisible(false)
+    );
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  // Parse @mention query only if members are available (Group chats only)
   const mentionQuery = useMemo(() => {
+    if (!members || members.length === 0) return null;
     const lastAtIndex = text.lastIndexOf('@');
     if (lastAtIndex === -1) return null;
     const query = text.substring(lastAtIndex + 1);
     if (query.includes(' ') && query.length > 20) return null;
     return query.toLowerCase();
-  }, [text]);
+  }, [text, members]);
 
   const filteredMembers = useMemo(() => {
     if (mentionQuery === null) return [];
@@ -164,7 +184,7 @@ export default function ChatInput({ onSend, onTyping, placeholder, disabled, mem
       { 
         backgroundColor: isDark ? colors.surfaceLow : '#FFFFFF', 
         borderTopColor: colors.border,
-        paddingBottom: insets.bottom > 0 ? insets.bottom : 10 
+        paddingBottom: keyboardVisible ? (Platform.OS === 'ios' ? 8 : 12) : Math.max(insets.bottom, 12)
       }
     ]}>
 

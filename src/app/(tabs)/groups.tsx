@@ -2,8 +2,10 @@ import { useAuth } from '@/src/context/AuthContext';
 import { useTheme } from '@/src/context/ThemeContext';
 import { db } from '@/src/firebase/config';
 import { 
+  acceptDirectChat,
   approveJoinRequest, 
   createGroup, 
+  rejectDirectChat,
   rejectJoinRequest, 
   sendJoinRequest 
 } from '@/src/firebase/firestore';
@@ -102,19 +104,16 @@ export default function GroupsScreen() {
       setMyRequests(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as JoinRequest)));
     });
 
-    let unsubAdmin = () => {};
-    if (userProfile?.role === 'admin') {
-      const qAdmin = query(collection(db, 'join_requests'), where('adminId', '==', user.uid));
-      unsubAdmin = onSnapshot(qAdmin, (snap) => {
-        setIncomingRequests(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as JoinRequest)));
-      });
-    }
+    const qAdmin = query(collection(db, 'join_requests'), where('adminId', '==', user.uid));
+    const unsubAdmin = onSnapshot(qAdmin, (snap) => {
+      setIncomingRequests(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as JoinRequest)));
+    });
 
     return () => {
       unsubSent();
       unsubAdmin();
     };
-  }, [user, userProfile]);
+  }, [user]);
 
   const handlePickGroupAvatar = async () => {
     try {
@@ -352,8 +351,94 @@ export default function GroupsScreen() {
     </View>
   );
 
-  const filteredGroups = groups.filter(g => g.name.toLowerCase().includes(searchQuery.toLowerCase()));
-  const filteredDirectChats = directChats.filter(c => getChatName(c).toLowerCase().includes(searchQuery.toLowerCase()));
+  const renderMessageRequestItem = ({ item }: { item: DirectChat }) => {
+    const chatName = getChatName(item);
+    const photoUrl = getChatPhoto(item);
+
+    return (
+      <View style={[
+        styles.requestCard, 
+        { 
+          backgroundColor: isDark ? colors.card : '#FFFFFF',
+          borderColor: colors.borderHighlight,
+        }
+      ]}>
+        <View style={[styles.requestDecorGlow, { backgroundColor: isDark ? 'rgba(0, 122, 255, 0.08)' : 'rgba(0, 122, 255, 0.05)' }]} />
+
+        <TouchableOpacity 
+          style={styles.requestHeader}
+          onPress={() => router.push({ pathname: "/group/[id]", params: { id: item.id, type: 'direct' } })}
+          activeOpacity={0.7}
+        >
+          <View style={[styles.requestAvatar, { backgroundColor: isDark ? '#2A2A2A' : '#E5E5EA', overflow: 'hidden' }]}>
+            {photoUrl ? (
+              <Image source={{ uri: photoUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+            ) : (
+              <Ionicons name="person" size={24} color={colors.primary} />
+            )}
+          </View>
+          <View style={styles.requestHeaderText}>
+            <Text style={[styles.requestUserName, { color: colors.text }]}>{chatName}</Text>
+            <Text style={[styles.requestUserSubtitle, { color: colors.textSecondary }]}>
+              Sent you a direct <Text style={{ color: colors.primary, fontWeight: '700' }}>Message Request</Text>
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        <View style={[styles.requestBioContainer, { backgroundColor: isDark ? colors.surfaceLow : '#F3F3F8' }]}>
+          <Text style={[styles.requestBioText, { color: colors.textSecondary }]} numberOfLines={2}>
+            "{item.lastMessage || 'Sent you a direct message request'}"
+          </Text>
+        </View>
+
+        <View style={styles.requestActionRow}>
+          <TouchableOpacity 
+            style={[styles.rejectBtn, { borderColor: colors.danger, backgroundColor: isDark ? 'rgba(255, 69, 58, 0.1)' : 'rgba(255, 59, 48, 0.08)' }]}
+            onPress={() => rejectDirectChat(item.id)}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="close" size={18} color={colors.danger} />
+            <Text style={[styles.rejectBtnText, { color: colors.danger }]}>Decline</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.approveBtn, { backgroundColor: colors.primary }]}
+            onPress={() => acceptDirectChat(item.id)}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="checkmark" size={18} color="#FFFFFF" />
+            <Text style={styles.approveBtnText}>Accept</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
+  const isUserMemberOfGroup = (g: Group) => {
+    if (!user) return false;
+    if (userProfile?.role === 'admin') return true;
+    if (g.adminId === user.uid) return true;
+    if (g.adminIds && g.adminIds.includes(user.uid)) return true;
+    if (g.members && g.members.includes(user.uid)) return true;
+    if (g.allowedUsers && g.allowedUsers.includes(user.uid)) return true;
+    return false;
+  };
+
+  const pendingMessageRequests = directChats.filter(
+    c => c.status === 'PENDING' && c.initiatedBy && c.initiatedBy !== user?.uid
+  );
+
+  const acceptedDirectChats = directChats.filter(
+    c => c.status === 'ACCEPTED' || !c.status || c.initiatedBy === user?.uid
+  );
+
+  const filteredGroups = groups
+    .filter(g => isUserMemberOfGroup(g))
+    .filter(g => g.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredDirectChats = acceptedDirectChats.filter(c => getChatName(c).toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredMessageRequests = pendingMessageRequests.filter(c => getChatName(c).toLowerCase().includes(searchQuery.toLowerCase()));
+
+  const totalRequestsCount = incomingRequests.length + pendingMessageRequests.length;
 
   return (
     <SwipeableTabWrapper currentTab="groups">
@@ -482,29 +567,27 @@ export default function GroupsScreen() {
             </Text>
           </TouchableOpacity>
 
-          {userProfile?.role === 'admin' && (
-            <TouchableOpacity 
-              style={[
-                styles.segmentBtn, 
-                activeTab === 'requests' && [styles.segmentBtnActive, { backgroundColor: isDark ? colors.surfaceHigh : '#FFFFFF' }]
-              ]}
-              onPress={() => setActiveTab('requests')}
-              activeOpacity={0.8}
-            >
-              <Text style={[
-                styles.segmentText, 
-                { color: activeTab === 'requests' ? colors.primary : colors.textSecondary },
-                activeTab === 'requests' && { fontWeight: '700' }
-              ]}>
-                Requests
-              </Text>
-              {incomingRequests.length > 0 && (
-                <View style={[styles.tabBadge, { backgroundColor: colors.primary }]}>
-                  <Text style={styles.tabBadgeText}>{incomingRequests.length}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity 
+            style={[
+              styles.segmentBtn, 
+              activeTab === 'requests' && [styles.segmentBtnActive, { backgroundColor: isDark ? colors.surfaceHigh : '#FFFFFF' }]
+            ]}
+            onPress={() => setActiveTab('requests')}
+            activeOpacity={0.8}
+          >
+            <Text style={[
+              styles.segmentText, 
+              { color: activeTab === 'requests' ? colors.primary : colors.textSecondary },
+              activeTab === 'requests' && { fontWeight: '700' }
+            ]}>
+              Requests
+            </Text>
+            {totalRequestsCount > 0 && (
+              <View style={[styles.tabBadge, { backgroundColor: colors.primary }]}>
+                <Text style={styles.tabBadgeText}>{totalRequestsCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -544,15 +627,24 @@ export default function GroupsScreen() {
 
       {activeTab === 'requests' && (
         <FlatList
-          data={incomingRequests}
+          data={[
+            ...filteredMessageRequests.map(r => ({ type: 'message' as const, data: r, id: `msg-${r.id}` })),
+            ...incomingRequests.map(r => ({ type: 'group' as const, data: r, id: `grp-${r.id}` }))
+          ]}
           keyExtractor={item => item.id}
-          renderItem={renderRequestItem}
+          renderItem={({ item }) => {
+            if (item.type === 'message') {
+              return renderMessageRequestItem({ item: item.data });
+            }
+            return renderRequestItem({ item: item.data });
+          }}
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: listBottomPadding }}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Ionicons name="checkmark-done-circle-outline" size={48} color={colors.textSecondary} style={{ opacity: 0.4 }} />
-              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>No pending join requests</Text>
+              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>No pending requests</Text>
+              <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>New message requests and join invitations will appear here</Text>
             </View>
           }
         />

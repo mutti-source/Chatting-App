@@ -398,12 +398,26 @@ export const getOrCreateDirectChat = async (adminId: string, adminName: string) 
       [myUid]: myPhoto || '',
       [adminId]: adminPhoto || '',
     },
-    lastMessage: 'Chat started',
+    lastMessage: 'Message request',
     lastMessageTime: serverTimestamp(),
-    createdAt: serverTimestamp()
+    createdAt: serverTimestamp(),
+    status: 'PENDING',
+    initiatedBy: myUid,
   });
 
   return newChatRef.id;
+};
+
+export const acceptDirectChat = async (chatId: string) => {
+  await updateDoc(doc(db, 'direct_chats', chatId), {
+    status: 'ACCEPTED'
+  });
+};
+
+export const rejectDirectChat = async (chatId: string) => {
+  await updateDoc(doc(db, 'direct_chats', chatId), {
+    status: 'REJECTED'
+  });
 };
 
 export const sendDirectMessage = async (
